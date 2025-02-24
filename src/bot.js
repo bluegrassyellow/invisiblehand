@@ -2,74 +2,123 @@ const mineflayer = require('mineflayer');
 const WebSocket = require('ws');
 const { pathfinder, Movements, goals: { GoalNear, GoalBlock } } = require('mineflayer-pathfinder');
 const { goals } = require('mineflayer-pathfinder')
+const { getBotByName } = require('./bots');
 
 const mcData = require('minecraft-data');
 const { Vec3 } = require('vec3');
 
 class Bot {
-  constructor(name, wsPort) {
-    this.name = name;
-    this.wsPort = wsPort;
-    this.bot = mineflayer.createBot({
-        host: 'localhost', // change if necessary
-        port: 25565,       // default Minecraft server port
-        username: name
-    });
-
-    this.bot.loadPlugin(pathfinder);
-    this.bot.once('spawn', () => {
-        console.log(`${this.name} has spawned in the Minecraft world!`);
-        this.bot.chat('/tp @s -161 -42 -3');
-
-        const data = mcData(this.bot.version);
-        this.movements = new Movements(this.bot, data);
-        this.movements.canDig = false;
-        this.bot.pathfinder.setMovements(this.movements);
-    });
-
-    this.setupWebSocket();
-  }
-
-  setupWebSocket() {
-    this.wss = new WebSocket.Server({ port: this.wsPort });
-    console.log(`${this.name} WebSocket server started on port ${this.wsPort}`);
-    
-    this.wss.on('connection', ws => {
-        console.log(`Client connected to ${this.name}'s WebSocket server`);
-        ws.send('Hello from the bot!');
-        ws.on('message', message => {
-            console.log(`${this.name} received message: ${message}`);
-            if (String(message).trim() === 'hunt') {
-                console.log("here")
-                this.hunt().then(() => {
-                    ws.send(JSON.stringify({ type: "hunting", status: "done" }));
-                }).catch(err => {
-                    ws.send(JSON.stringify({ type: "hunting", status: "error", error: err.message }));
-                });
-            } else if (String(message).trim() === 'aboveground') {
-                this.ensureAboveGround();
-            } else if (String(message).trim() === 'dig') {
-                this.goUnderground();
-            } else if (String(message).trim() === 'meetup') {
-                this.meetUp().then(() => {
-                    ws.send(JSON.stringify({ type: "meetup", status: "done" }));
-                }).catch(err => {
-                    ws.send(JSON.stringify({ type: "meetup", status: "error", error: err.message }));
-                });
-            } else if (String(message).trim() === 'gather') {
-                this.gatherMaterials().then(() => {
-                    ws.send(JSON.stringify({ type: "gather", status: "done" }));
-                }).catch(err => {
-                    ws.send(JSON.stringify({ type: "gather", status: "error", error: err.message }));
-                });
-            } else if (String(message).trim() === 'inventory') {
-                this.getInventory().then(inventory => {
-                    ws.send(JSON.stringify({ type: "inventory", inventory }));
-                });
-            }
+    constructor(name, wsPort) {
+        this.name = name;
+        this.wsPort = wsPort;
+        this.bot = mineflayer.createBot({
+            host: 'localhost', // change if necessary
+            port: 25565,       // default Minecraft server port
+            username: name
         });
-    });
-  }
+
+        this.bot.loadPlugin(pathfinder);
+        this.bot.once('spawn', () => {
+            console.log(`${this.name} has spawned in the Minecraft world!`);
+            this.bot.chat('/tp @s -161 -42 -3');
+
+            const data = mcData(this.bot.version);
+            this.movements = new Movements(this.bot, data);
+            this.movements.canDig = false;
+            this.bot.pathfinder.setMovements(this.movements);
+        });
+
+        // **Detect Health Loss & Identify Cause**
+        this.bot.on('health', () => {
+            if (this.bot.health >= this.lastHealth) return; // Only trigger if health is reduced
+        
+            this.wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({ type: 'i was attacked', current_health: this.bot.health }));
+                }
+            });
+        
+            this.lastHealth = this.bot.health;
+        });
+
+        this.setupWebSocket();
+    }
+
+    setupWebSocket() {
+        this.wss = new WebSocket.Server({ port: this.wsPort });
+        console.log(`${this.name} WebSocket server started on port ${this.wsPort}`);
+
+        this.wss.on('connection', ws => {
+            console.log(`Client connected to ${this.name}'s WebSocket server`);
+            ws.send('Hello from the bot!');
+            ws.on('message', message => {
+                try {
+                    const parsed = JSON.parse(message);
+                    console.log(`${this.name} received message: ${JSON.stringify(parsed)}`);
+                    if (parsed.type === 'hunt') {
+                        this.hunt().then(() => {
+                            ws.send(JSON.stringify({ type: 'hunting', status: 'done' }));
+                        }).catch(err => {
+                            ws.send(JSON.stringify({ type: 'hunting', status: 'error', error: err.message }));
+                        });
+                    } else if (parsed.type === 'aboveground') {
+                        this.ensureAboveGround();
+                    } else if (parsed.type === 'dig') {
+                        this.goUnderground();
+                    } else if (parsed.type === 'meetup') {
+                        this.meetUp().then(() => {
+                            ws.send(JSON.stringify({ type: 'meetup', status: 'done' }));
+                        }).catch(err => {
+                            ws.send(JSON.stringify({ type: 'meetup', status: 'error', error: err.message }));
+                        });
+                    } else if (parsed.type === 'gather') {
+                        this.gatherMaterials().then(() => {
+                            ws.send(JSON.stringify({ type: 'gather', status: 'done' }));
+                        }).catch(err => {
+                            ws.send(JSON.stringify({ type: 'gather', status: 'error', error: err.message }));
+                        });
+                    } else if (parsed.type === 'inventory') {
+                        this.getInventory().then(inventory => {
+                            ws.send(JSON.stringify({ type: 'inventory', inventory }));
+                        });
+                    } else if (parsed.type === 'build') {
+                        this.buildStructure().then(structure => {
+                            ws.send(JSON.stringify({ type: 'build', structure }));
+                        });
+                    } else if (parsed.type === 'attack') {
+                        // For attack, expect a 'player' property in the JSON
+                        if (parsed.player) {
+                            this.attackBot(parsed.player).then(() => {
+                                ws.send(JSON.stringify({ type: 'attack', status: 'done' }));
+                            }).catch(err => {
+                                ws.send(JSON.stringify({ type: 'attack', status: 'error', error: err.message }));
+                            });
+                        } else {
+                            console.error(`${this.name}: No player specified for attack command`);
+                            ws.send(JSON.stringify({ type: 'attack', status: 'error', error: 'No player specified' }));
+                        }
+                    } else {
+                        console.log(`${this.name}: Unknown message type: ${parsed.type}`);
+                    }
+                } catch (error) {
+                    console.error(`${this.name}: Failed to parse incoming message:`, error);
+                }
+            });
+        });
+    }
+
+    async findBot(targetName) {
+        const botInstance = getBotByName(targetName);
+    
+        if (!botInstance) {
+            console.log(`Bot ${targetName} does not exist.`);
+            return null;
+        }
+    
+        console.log(`Bot ${targetName} found at ${botInstance.bot.entity.position}`);
+        // console.log(Object.keys(botInstance.bot));
+        return botInstance.bot; // Return the bot instance if found
+    }
 
     async getInventory() {
         const items = this.bot.inventory.items();
@@ -80,19 +129,79 @@ class Bot {
         }
     }
 
-    async findNearbyLand() {
-        const searchRadius = 10;
-        for (let x = -searchRadius; x <= searchRadius; x++) {
-            for (let z = -searchRadius; z <= searchRadius; z++) {
-                const position = this.bot.entity.position.offset(x, 0, z);
-                const blockBelow = this.bot.blockAt(position.offset(0, -1, 0));
+    async clearObstacles(targetPos) {
+        const maxTime = 10000;
+        const start = Date.now();
+        while (this.bot.entity.position.distanceTo(targetPos) > 2 && Date.now() - start < maxTime) {
+          // Search for obstacles like leaves.
+          const obstacle = this.bot.findBlock({
+            matching: block =>
+              block &&
+              block.name &&
+              block.name.toLowerCase().includes('leaf'),
+            maxDistance: 3
+          });
+          if (obstacle) {
+            await this.bot.dig(obstacle);
+          } else {
+            break;
+          }
+          await new Promise(r => setTimeout(r, 500));
+        }
+    }
     
-                if (blockBelow && blockBelow.name !== 'water') {
-                    return position; // Found dry land
-                }
+    getBestWeapon() {
+        const weapons = {
+            netherite_sword: 6,
+            diamond_sword: 4.5,
+            iron_sword: 3.5,
+            stone_sword: 3,
+            wooden_sword: 2.5,
+            golden_sword: 2
+        };
+        let best = null, bestScore = 0;
+        for (const item of this.bot.inventory.items()) {
+            const score = weapons[item.name] || 0;
+            if (score > bestScore) {
+            bestScore = score;
+            best = item;
             }
         }
-        return null; // No land found
+        return best ? { weapon: best, damage: weapons[best.name] } : null;
+    }
+
+    async attackBot(targetName) {
+        const target = await this.findBot(targetName);
+        if (!target || !target.entity)
+            throw new Error(`Target "${targetName}" not found.`);
+        
+        const targetPos = target.entity.position;
+        const { x, y, z } = targetPos;
+        const goal = new GoalNear(x, y, z, 1);
+        this.bot.pathfinder.setGoal(goal, false);
+
+        const goalReached = new Promise(resolve => this.bot.once('goal_reached', resolve));
+        const timeout = new Promise(resolve => setTimeout(resolve, 5000));
+        await Promise.race([goalReached, timeout]);
+
+        if (this.bot.entity.position.distanceTo(targetPos) > 2) {
+            await this.clearObstacles(targetPos);
+            this.bot.pathfinder.setGoal(goal, false);
+            await new Promise(resolve => this.bot.once('goal_reached', resolve));
+        }
+
+        const output = this.getBestWeapon();
+        if (output && (!this.bot.heldItem || this.bot.heldItem.name !== output.weapon.name)) {
+            await new Promise((resolve, reject) => {
+            this.bot.equip(output.weapon, 'hand', err => err ? reject(err) : resolve());
+            });
+        }
+        const damage = output ? output.damage : 1;
+
+        this.bot.attack(target.entity);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        this.bot.chat(`/tell ${targetName} attack ${damage}`);
+        return "Attack completed";
     }
 
     async gatherMaterials() {
@@ -154,6 +263,67 @@ class Bot {
         } catch (error) {
             console.error(`${this.bot.username} failed to gather materials:`, error.message);
             return `Failed to gather materials: ${error.message}`;
+        }
+    }
+
+    async buildStructure() {
+        const botPosition = this.bot.entity.position;
+    
+        // **Get all building materials from inventory**
+        const availableMaterials = this.bot.inventory.items()
+            .filter(item => item.name.includes("planks") || item.name.includes("log") || item.name.includes("stone") || item.name.includes("bricks"));
+    
+        if (availableMaterials.length === 0) {
+            console.log(`${this.bot.username} has no building materials.`);
+            return "No building materials available.";
+        }
+    
+        console.log(`${this.bot.username} has materials: ${availableMaterials.map(m => m.name).join(', ')}`);
+    
+        const structureBlueprint = [
+            { x: 0, y: 0, z: 0 },
+            { x: 1, y: 0, z: 0 },
+            { x: 0, y: 1, z: 0 },
+            { x: 1, y: 1, z: 0 },
+            { x: 0, y: 0, z: 1 },
+            { x: 1, y: 0, z: 1 },
+            { x: 0, y: 1, z: 1 },
+            { x: 1, y: 1, z: 1 }
+        ]; // Simple 2x2 wall structure
+    
+        try {
+            for (const blockPos of structureBlueprint) {
+                if (availableMaterials.length === 0) {
+                    console.log(`${this.bot.username} ran out of materials!`);
+                    return "Ran out of building materials.";
+                }
+    
+                const material = availableMaterials.pop(); // Get the next available material
+                const targetPosition = botPosition.offset(blockPos.x, blockPos.y, blockPos.z);
+                const belowBlock = this.bot.blockAt(targetPosition.offset(0, -1, 0));
+    
+                // **Ensure there is a block below before placing**
+                if (!belowBlock || belowBlock.name === 'air') {
+                    console.log(`Skipping placement at ${targetPosition}, no support block below.`);
+                    continue; // Skip this position
+                }
+    
+                await this.bot.equip(material, 'hand');
+    
+                try {
+                    await this.bot.placeBlock(belowBlock, new Vec3(0, 1, 0));
+                    console.log(`${this.bot.username} placed ${material.name} at ${targetPosition}`);
+                    await this.bot.waitForTicks(5); // Give time for the game to update
+                } catch (err) {
+                    console.error(`${this.bot.username} failed to place ${material.name}:`, err.message);
+                    continue; // Move to the next block
+                }
+            }
+    
+            return "Structure built successfully!";
+        } catch (error) {
+            console.error(`${this.bot.username} failed to build:`, error.message);
+            return `Failed to build: ${error.message}`;
         }
     }
 

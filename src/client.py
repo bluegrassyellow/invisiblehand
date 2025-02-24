@@ -1,3 +1,4 @@
+import json
 import websocket
 import threading
 
@@ -24,33 +25,41 @@ class BotClient:
         """Called when the connection is closed"""
         print(f"{self.name}: Connection closed")
 
+    def attack(self, player):
+        """Attack a player"""
+        self.ws.send(json.dumps({"type": "attack", "player": player}))
+
     def hunt(self):
         """Hunt for a player"""
-        self.ws.send("hunt")
+        self.ws.send(json.dumps({"type": "hunt"}))
 
     def gather(self):
         """Gather materials"""
-        self.ws.send("gather")
+        self.ws.send(json.dumps({"type": "gather"}))
+
+    def build(self):
+        """Build"""
+        self.ws.send(json.dumps({"type": "build"}))
 
     def inventory(self):
         """Get inventory"""
-        self.ws.send("inventory")
+        self.ws.send(json.dumps({"type": "inventory"}))
 
     def farm(self):
         """Farm"""
-        self.ws.send("farm")
+        self.ws.send(json.dumps({"type": "farm"}))
 
     def meetup(self):
         """Meetup"""
-        self.ws.send("meetup")
+        self.ws.send(json.dumps({"type": "meetup"}))
 
     def aboveground(self):
         """Go aboveground"""
-        self.ws.send("aboveground")
+        self.ws.send(json.dumps({"type": "aboveground"}))
 
     def dig(self):
         """Dig"""
-        self.ws.send("dig")
+        self.ws.send(json.dumps({"type": "dig"}))
 
     def connect(self):
         """Creates and runs the WebSocket in a separate thread"""
@@ -70,6 +79,15 @@ class BotClient:
 
 client = BotClient("Bot1", "ws://localhost:8081")
 client.connect()
+
+client2 = BotClient("Bot2", "ws://localhost:8082")
+client2.connect()
+
+client3 = BotClient("Bot3", "ws://localhost:8083")
+client3.connect()
+
+client4 = BotClient("Bot4", "ws://localhost:8084")
+client4.connect()
 # Example usage
 # async def main():
 #     def custom_message_handler(message):
