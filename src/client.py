@@ -28,6 +28,10 @@ class BotClient:
         """Hunt for a player"""
         self.ws.send("hunt")
 
+    def meetup(self):
+        """Meetup"""
+        self.ws.send("meetup")
+
     def aboveground(self):
         """Go aboveground"""
         self.ws.send("aboveground")
