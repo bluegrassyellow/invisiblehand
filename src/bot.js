@@ -19,7 +19,7 @@ class Bot {
     this.bot.loadPlugin(pathfinder);
     this.bot.once('spawn', () => {
         console.log(`${this.name} has spawned in the Minecraft world!`);
-        this.bot.chat("/gamemode survival")
+        this.bot.chat('/tp @s -161 -42 -3');
 
         const data = mcData(this.bot.version);
         this.movements = new Movements(this.bot, data);
@@ -56,10 +56,106 @@ class Bot {
                 }).catch(err => {
                     ws.send(JSON.stringify({ type: "meetup", status: "error", error: err.message }));
                 });
+            } else if (String(message).trim() === 'gather') {
+                this.gatherMaterials().then(() => {
+                    ws.send(JSON.stringify({ type: "gather", status: "done" }));
+                }).catch(err => {
+                    ws.send(JSON.stringify({ type: "gather", status: "error", error: err.message }));
+                });
+            } else if (String(message).trim() === 'inventory') {
+                this.getInventory().then(inventory => {
+                    ws.send(JSON.stringify({ type: "inventory", inventory }));
+                });
             }
         });
     });
   }
+
+    async getInventory() {
+        const items = this.bot.inventory.items();
+        if (items.length === 0) {
+            return "Inventory is empty.";
+        } else {
+            return items.map(item => `${item.name} (${item.count})`).join(", ");
+        }
+    }
+
+    async findNearbyLand() {
+        const searchRadius = 10;
+        for (let x = -searchRadius; x <= searchRadius; x++) {
+            for (let z = -searchRadius; z <= searchRadius; z++) {
+                const position = this.bot.entity.position.offset(x, 0, z);
+                const blockBelow = this.bot.blockAt(position.offset(0, -1, 0));
+    
+                if (blockBelow && blockBelow.name !== 'water') {
+                    return position; // Found dry land
+                }
+            }
+        }
+        return null; // No land found
+    }
+
+    async gatherMaterials() {
+        const buildingMaterials = ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'hay_block'];
+    
+        let target = this.bot.findBlock({
+            matching: block => buildingMaterials.includes(block.name),
+            maxDistance: 64
+        });
+    
+        if (!target) return "No building materials found nearby.";
+    
+        console.log(`${this.bot.username} engaging target ${target.name} at ${target.position}`);
+    
+        try {
+            const mcData = require('minecraft-data')(this.bot.version);
+            const movements = new Movements(this.bot, mcData);
+            movements.allowParkour = true;  
+            movements.allow1by1towers = true; 
+            movements.canSwim = true; 
+            this.bot.pathfinder.setMovements(movements);
+    
+            await this.bot.pathfinder.goto(new goals.GoalBlock(target.position.x, target.position.y, target.position.z));
+    
+            console.log(`${this.bot.username} preparing to break ${target.name}`);
+    
+            // **Equip the best tool before digging**
+            if (target.name.includes("log")) {
+                await this.bot.equip(mcData.itemsByName.iron_axe.id, 'hand').catch(() => {});
+            } else if (target.name.includes("hay")) {
+                await this.bot.equip(mcData.itemsByName.shears?.id || mcData.itemsByName.iron_hoe?.id, 'hand').catch(() => {});
+            }
+    
+            this.bot.clearControlStates();
+            this.bot.setControlState('sneak', true); // Prevents movement during digging
+    
+            // **Try Digging & Ignore "Aborted" If Block Is Gone**
+            try {
+                await this.bot.dig(target, true);
+            } catch (err) {
+                if (err.message.includes('Digging aborted')) {
+                    const checkBlock = this.bot.blockAt(target.position);
+                    if (!checkBlock || checkBlock.name !== target.name) {
+                        console.log(`${this.bot.username} successfully broke ${target.name} despite digging aborted message.`);
+                    } else {
+                        console.log(`${this.bot.username} retrying to break ${target.name}.`);
+                        await this.bot.dig(target, true);
+                    }
+                } else {
+                    throw err;
+                }
+            }
+    
+            this.bot.setControlState('sneak', false);
+    
+            console.log(`${this.bot.username} gathered ${target.name}!`);
+            return `Gathering building materials (${target.name}) succeeded.`;
+    
+        } catch (error) {
+            console.error(`${this.bot.username} failed to gather materials:`, error.message);
+            return `Failed to gather materials: ${error.message}`;
+        }
+    }
 
     async meetUp() {
         if (!this.bot.pathfinder) this.bot.loadPlugin(pathfinder);
@@ -71,7 +167,7 @@ class Bot {
 
         this.bot.pathfinder.setMovements(movements);
 
-        const meetupLocation = new Vec3(-121, 77, -91.3);
+        const meetupLocation = new Vec3(-154, -42, 1);
         console.log(`${this.bot.username} heading to meetup at ${meetupLocation.x}, ${meetupLocation.y}, ${meetupLocation.z}`);
         this.bot.chat(`Heading to meetup at ${meetupLocation.x}, ${meetupLocation.y}, ${meetupLocation.z}`);
 

@@ -28,6 +28,18 @@ class BotClient:
         """Hunt for a player"""
         self.ws.send("hunt")
 
+    def gather(self):
+        """Gather materials"""
+        self.ws.send("gather")
+
+    def inventory(self):
+        """Get inventory"""
+        self.ws.send("inventory")
+
+    def farm(self):
+        """Farm"""
+        self.ws.send("farm")
+
     def meetup(self):
         """Meetup"""
         self.ws.send("meetup")
