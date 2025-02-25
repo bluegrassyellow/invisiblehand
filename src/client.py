@@ -38,7 +38,8 @@ class BotClient:
         "Your output should always include a tool call and not ask the user for questioins as you are on your own.\n"
         "You will be looped in with the result of the tool call along with other messages you may have recieved and have to "
         "use that information to then suggest your next action.\n"   
-        "You cannot keep gathering resources as you need to hunt to survive and keep energy so regularly hunt.\n"     
+        "You cannot keep gathering resources as you need to hunt to survive and keep energy so regularly hunt.\n"
+        "It is super important that you hunt regularly and do not let your energy get too low.\n"     
     )
 
     USER_PROMPT = (
@@ -68,7 +69,7 @@ class BotClient:
         self.auth_token = os.getenv("AUTH_TOKEN")
     def on_message(self, ws, message):
         """Called when a message is received"""
-        print(f"{self.name}: Received message: {message}")
+        print(f"{self.name}: Received message: {message}\n")
         json_message = json.loads(message)
         if "type" in json_message:
             if json_message["type"] == "inventory":
@@ -244,7 +245,7 @@ class BotClient:
         truncated_context = tmp[::-1]
 
         completion = self.client.chat.completions.create(
-            model="o1",
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "developer",
@@ -264,7 +265,7 @@ class BotClient:
             "content": str(completion.choices[0].message)
         })
 
-        self._log(completion.choices[0].message)
+        self._log(str(completion.choices[0].message))
 
         if completion.choices[0].message.tool_calls:
             for tool_call in completion.choices[0].message.tool_calls:
@@ -300,10 +301,10 @@ client4.connect()
 
 time.sleep(5)
 
-client1.meetup(0)
-client2.meetup(-3)
-client3.meetup(-2)
-client4.meetup(-5)
+# client1.meetup(0)
+# client2.meetup(-3)
+# client3.meetup(-2)
+# client4.meetup(-5)
 
 thread1 = threading.Thread(target=client1.start)
 thread2 = threading.Thread(target=client2.start)
