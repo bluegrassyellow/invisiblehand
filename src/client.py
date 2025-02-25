@@ -61,6 +61,7 @@ class BotClient:
         self.context = []
         self.my_inventory = None
         self.client = openai.OpenAI()
+        self.openai_encoding = tiktoken.encoding_for_model("o1")
 
     def on_message(self, ws, message):
         """Called when a message is received"""
@@ -262,15 +263,6 @@ class BotClient:
                     self.meetup(0)
                 elif tool_call.function.name == "hunt":
                     self.hunt()
-                    
-
-    # def start(self):
-    #     """Start LLM"""
-    #     completion = client.chat.completions.create(
-    # model="gpt-4o",
-    # messages=[{"role": "user", "content": "What is the weather like in Paris today?"}],
-    # tools=tools
-
 
 
 # client = BotClient("Bot1", "ws://localhost:8000/v1/realtime?patient_id=1", auth_token="your_auth_token")
@@ -287,42 +279,20 @@ client3.connect()
 client4 = BotClient("wafflebottom", "ws://localhost:8084")
 client4.connect()
 
-# time.sleep(5)
+time.sleep(5)
 
-# client1.meetup(0)
-# client2.meetup(-3)
-# client3.meetup(-2)
-# client4.meetup(-5)
+client1.meetup(0)
+client2.meetup(-3)
+client3.meetup(-2)
+client4.meetup(-5)
 
-# Example usage
-# async def main():
-#     def custom_message_handler(message):
-#         print(f"Custom handler: {message}")
+thread1 = threading.Thread(target=client1.start)
+thread2 = threading.Thread(target=client2.start)
+thread3 = threading.Thread(target=client3.start)
+thread4 = threading.Thread(target=client4.start)
 
-#     client = BotClient("Bot1", 12345, on_message_callback=custom_message_handler)
-#     await client.connect()
+thread1.start()
+thread2.start()
+thread3.start()
+thread4.start()
 
-#     # The client is now connected, and messages will trigger `custom_message_handler`.
-#     # Other async tasks can continue running without being blocked.
-
-#     await asyncio.sleep(999999)  # Keep the script alive for testing.
-
-# if __name__ == '__main__':
-#     async def main():
-#         # Instantiate 4 clients for bot1, bot2, bot3, bot4
-#         client1 = BotClient('bot1', 8081)
-#         client2 = BotClient('bot2', 8082)
-#         client3 = BotClient('bot3', 8083)
-#         client4 = BotClient('bot4', 8084)
-        
-#         # Start all clients
-#         client1.start()
-#         client2.start()
-#         client3.start()
-#         client4.start()
-
-#         # Keep the event loop running
-#         while True:
-#             await asyncio.sleep(1)
-
-#     asyncio.run(main()) 
