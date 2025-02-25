@@ -35,7 +35,8 @@ class BotClient:
         "whisper(message, bot_name): send a message to another bot to communicate and coordinate.\n"
         "Your output should always include a tool call and not ask the user for questioins as you are on your own.\n"
         "You will be looped in with the result of the tool call along with other messages you may have recieved and have to "
-        "use that information to then suggest your next action.\n"        
+        "use that information to then suggest your next action.\n"   
+        "You cannot keep gathering resources as you need to hunt to survive and keep energy so regularly hunt.\n"     
     )
 
     USER_PROMPT = (
@@ -215,7 +216,7 @@ class BotClient:
     def run(self):
         """Run LLM"""
         token_count = len(self.openai_encoding.encode(self.DEVELOPER_PROMPT))
-        token_count += len(self.openai_encoding.encode(self.USER_PROMPT))
+        token_count += len(self.openai_encoding.encode(self.USER_PROMPT.format(bot_name=self.name, inventory=self.my_inventory)))
 
         tmp = []
         for item in self.context[-1:0:-1]:
@@ -235,7 +236,7 @@ class BotClient:
                 },
                 {
                     "role": "user",
-                    "content": self.USER_PROMPT
+                    "content": self.USER_PROMPT.format(bot_name=self.name, inventory=self.my_inventory)
                 },
                 *truncated_context
             ],
