@@ -5,6 +5,8 @@ import time
 import openai
 from tools import tools
 import tiktoken
+import requests
+import os
 
 from dotenv import load_dotenv
 
@@ -63,7 +65,7 @@ class BotClient:
         self.my_inventory = None
         self.client = openai.OpenAI()
         self.openai_encoding = tiktoken.encoding_for_model("o1")
-
+        self.auth_token = os.getenv("AUTH_TOKEN")
     def on_message(self, ws, message):
         """Called when a message is received"""
         print(f"{self.name}: Received message: {message}")
@@ -75,6 +77,7 @@ class BotClient:
                 "role": "user",
                 "content": "You recieved the following from your minecraft bot: \n" + message + "\n"
             })
+            self._log(message)
             self.running = False
 
 
@@ -89,6 +92,19 @@ class BotClient:
     def on_close(self, ws, close_status_code, close_msg):
         """Called when the connection is closed"""
         print(f"{self.name}: Connection closed")
+
+    def _log(self, message):
+        url = "https://minecraftserver-production.up.railway.app/api/feed"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.auth_token}"
+        }
+        data = {"bot": self.name, "message": message}
+        try:
+            response = requests.post(url, headers=headers, json=data)
+            print(response.text)
+        except Exception as e:
+            print(f"{self.name}: Error logging: {e}")
 
     def whisper(self, message, bot_name):
         """Send a whisper to another bot"""
@@ -247,6 +263,8 @@ class BotClient:
             "role": "assistant",
             "content": str(completion.choices[0].message)
         })
+
+        self._log(completion.choices[0].message)
 
         if completion.choices[0].message.tool_calls:
             for tool_call in completion.choices[0].message.tool_calls:
