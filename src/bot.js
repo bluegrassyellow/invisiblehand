@@ -1,7 +1,7 @@
 const mineflayer = require('mineflayer');
 const WebSocket = require('ws');
 const { pathfinder, Movements, goals: { GoalNear, GoalBlock } } = require('mineflayer-pathfinder');
-const { goals } = require('mineflayer-pathfinder')
+const { goals } = require('mineflayer-pathfinder');
 const { getBotByName } = require('./bots');
 
 const mcData = require('minecraft-data');
@@ -41,6 +41,15 @@ class Bot {
             this.lastHealth = this.bot.health;
         });
 
+        this.bot.on('whisper', (username, message) => {
+            if (username === this.bot.username) return; // Ignore self-whispers if applicable
+            this.wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({ type: 'message', message: message, sender: username }));
+                }
+            });
+        });
+
         this.setupWebSocket();
     }
 
@@ -50,11 +59,9 @@ class Bot {
 
         this.wss.on('connection', ws => {
             console.log(`Client connected to ${this.name}'s WebSocket server`);
-            ws.send('Hello from the bot!');
             ws.on('message', message => {
                 try {
                     const parsed = JSON.parse(message);
-                    console.log(`${this.name} received message: ${JSON.stringify(parsed)}`);
                     if (parsed.type === 'hunt') {
                         this.hunt().then(() => {
                             ws.send(JSON.stringify({ type: 'hunting', status: 'done' }));
@@ -66,14 +73,14 @@ class Bot {
                     } else if (parsed.type === 'dig') {
                         this.goUnderground();
                     } else if (parsed.type === 'meetup') {
-                        this.meetUp().then(() => {
+                        this.meetUp(parsed.distance).then(() => {
                             ws.send(JSON.stringify({ type: 'meetup', status: 'done' }));
                         }).catch(err => {
                             ws.send(JSON.stringify({ type: 'meetup', status: 'error', error: err.message }));
                         });
                     } else if (parsed.type === 'gather') {
-                        this.gatherMaterials().then(() => {
-                            ws.send(JSON.stringify({ type: 'gather', status: 'done' }));
+                        this.gatherMaterials().then(result => {
+                            ws.send(JSON.stringify({ type: 'gather', status: 'done', result }));
                         }).catch(err => {
                             ws.send(JSON.stringify({ type: 'gather', status: 'error', error: err.message }));
                         });
@@ -97,6 +104,12 @@ class Bot {
                             console.error(`${this.name}: No player specified for attack command`);
                             ws.send(JSON.stringify({ type: 'attack', status: 'error', error: 'No player specified' }));
                         }
+                    } else if (parsed.type === 'whisper') {
+                        this.sendMessage(parsed.bot_name, parsed.message).then(() => {
+                            ws.send(JSON.stringify({ type: 'whisper', status: 'done' }));
+                        }).catch(err => {
+                            ws.send(JSON.stringify({ type: 'whisper', status: 'error', error: err.message }));
+                        });
                     } else {
                         console.log(`${this.name}: Unknown message type: ${parsed.type}`);
                     }
@@ -105,6 +118,11 @@ class Bot {
                 }
             });
         });
+    }
+
+    async sendMessage(recipient, message) {
+        this.bot.whisper(recipient, message);
+        console.log(`[${this.name} -> ${recipient}]: ${message}`);
     }
 
     async findBot(targetName) {
@@ -209,7 +227,7 @@ class Bot {
     
         let target = this.bot.findBlock({
             matching: block => buildingMaterials.includes(block.name),
-            maxDistance: 64
+            maxDistance: 10000
         });
     
         if (!target) return "No building materials found nearby.";
@@ -266,97 +284,97 @@ class Bot {
         }
     }
 
-    async buildStructure() {
-        const botPosition = this.bot.entity.position;
-    
-        // **Get all building materials from inventory**
-        const availableMaterials = this.bot.inventory.items()
-            .filter(item => item.name.includes("planks") || item.name.includes("log") || item.name.includes("stone") || item.name.includes("bricks"));
-    
-        if (availableMaterials.length === 0) {
-            console.log(`${this.bot.username} has no building materials.`);
-            return "No building materials available.";
-        }
-    
-        console.log(`${this.bot.username} has materials: ${availableMaterials.map(m => m.name).join(', ')}`);
-    
-        const structureBlueprint = [
-            { x: 0, y: 0, z: 0 },
-            { x: 1, y: 0, z: 0 },
-            { x: 0, y: 1, z: 0 },
-            { x: 1, y: 1, z: 0 },
-            { x: 0, y: 0, z: 1 },
-            { x: 1, y: 0, z: 1 },
-            { x: 0, y: 1, z: 1 },
-            { x: 1, y: 1, z: 1 }
-        ]; // Simple 2x2 wall structure
-    
-        try {
-            for (const blockPos of structureBlueprint) {
-                if (availableMaterials.length === 0) {
-                    console.log(`${this.bot.username} ran out of materials!`);
-                    return "Ran out of building materials.";
-                }
-    
-                const material = availableMaterials.pop(); // Get the next available material
-                const targetPosition = botPosition.offset(blockPos.x, blockPos.y, blockPos.z);
-                const belowBlock = this.bot.blockAt(targetPosition.offset(0, -1, 0));
-    
-                // **Ensure there is a block below before placing**
-                if (!belowBlock || belowBlock.name === 'air') {
-                    console.log(`Skipping placement at ${targetPosition}, no support block below.`);
-                    continue; // Skip this position
-                }
-    
-                await this.bot.equip(material, 'hand');
-    
-                try {
-                    await this.bot.placeBlock(belowBlock, new Vec3(0, 1, 0));
-                    console.log(`${this.bot.username} placed ${material.name} at ${targetPosition}`);
-                    await this.bot.waitForTicks(5); // Give time for the game to update
-                } catch (err) {
-                    console.error(`${this.bot.username} failed to place ${material.name}:`, err.message);
-                    continue; // Move to the next block
-                }
-            }
-    
-            return "Structure built successfully!";
-        } catch (error) {
-            console.error(`${this.bot.username} failed to build:`, error.message);
-            return `Failed to build: ${error.message}`;
-        }
-    }
-
-    async meetUp() {
+    async meetUp(distance) {
         if (!this.bot.pathfinder) this.bot.loadPlugin(pathfinder);
-
+    
+        // Configure movements
+        const mcData = require('minecraft-data')(this.bot.version);
         const movements = new Movements(this.bot, mcData);
-        movements.allowParkour = false;
-        movements.canSwim = false; 
-        movements.allow1by1towers = false; 
-
+        movements.canDig = true;           // Allow digging to clear obstacles
+        movements.allowParkour = false;    // Keep parkour off if desired
+        movements.canSwim = true;          // Allow swimming to avoid water issues
+        movements.allow1by1towers = false; // Keep this off if not needed
+        movements.scafoldingBlocks = [];   // No scaffolding for simplicity
+    
         this.bot.pathfinder.setMovements(movements);
-
-        const meetupLocation = new Vec3(-154, -42, 1);
+    
+        const meetupLocation = new Vec3(-154 + distance, -42, 1);
         console.log(`${this.bot.username} heading to meetup at ${meetupLocation.x}, ${meetupLocation.y}, ${meetupLocation.z}`);
         this.bot.chat(`Heading to meetup at ${meetupLocation.x}, ${meetupLocation.y}, ${meetupLocation.z}`);
-
+    
+        // Equip a tool for digging (e.g., hand or pickaxe if available)
+        const tool = this.bot.inventory.items().find(item => item.name.includes('pickaxe')) || null;
+        if (tool) {
+            await this.bot.equip(tool, 'hand');
+            console.log(`${this.bot.username} equipped ${tool.name} for digging`);
+        }
+    
         return new Promise((resolve, reject) => {
-            this.bot.pathfinder.setGoal(new GoalBlock(meetupLocation.x, meetupLocation.y, meetupLocation.z));
-
+            const goal = new goals.GoalBlock(meetupLocation.x, meetupLocation.y, meetupLocation.z);
+            this.bot.pathfinder.setGoal(goal);
+    
+            // Monitor progress and handle obstacles
+            let stuckTimer = null;
+            const checkStuck = setInterval(async () => {
+                const pos = this.bot.entity.position;
+                const distanceToGoal = pos.distanceTo(meetupLocation);
+    
+                // If not moving significantly and not near goal, assume stuck
+                if (distanceToGoal > 2 && this.bot.pathfinder.isMoving() && !stuckTimer) {
+                    stuckTimer = setTimeout(async () => {
+                        console.log(`${this.bot.username} seems stuck at ${pos.x}, ${pos.y}, ${pos.z}`);
+                        await this.clearObstacle_meetup();
+                        this.bot.pathfinder.setGoal(goal); // Reset goal after clearing
+                        stuckTimer = null;
+                    }, 2000); // Wait 2 seconds to confirm stuck
+                } else if (distanceToGoal <= 2) {
+                    clearTimeout(stuckTimer);
+                    stuckTimer = null;
+                }
+            }, 500); // Check every 0.5 seconds
+    
             this.bot.once('goal_reached', () => {
+                clearInterval(checkStuck);
                 console.log(`${this.bot.username} arrived at the meetup location.`);
                 resolve();
             });
-
+    
             this.bot.once('path_stop', () => {
+                clearInterval(checkStuck);
                 reject(new Error('Pathfinding stopped before reaching the destination.'));
             });
-
+    
             this.bot.once('goal_error', (err) => {
+                clearInterval(checkStuck);
                 reject(err);
             });
         });
+    }
+    
+    // Helper method to clear obstacles
+    async clearObstacle_meetup() {
+        const pos = this.bot.entity.position;
+        const directions = [
+            new Vec3(1, 0, 0), new Vec3(-1, 0, 0), // X axis
+            new Vec3(0, 0, 1), new Vec3(0, 0, -1), // Z axis
+            new Vec3(0, 1, 0), new Vec3(0, -1, 0)  // Y axis (above/below)
+        ];
+    
+        for (const dir of directions) {
+            const blockPos = pos.plus(dir);
+            const block = this.bot.blockAt(blockPos);
+            
+            if (block && block.boundingBox === 'block') { // Solid block obstructing
+                console.log(`${this.bot.username} clearing block at ${blockPos.x}, ${blockPos.y}, ${blockPos.z}`);
+                try {
+                    await this.bot.dig(block);
+                    console.log(`${this.bot.username} cleared ${block.name}`);
+                    return; // Exit after clearing one block
+                } catch (err) {
+                    console.log(`Failed to dig block: ${err.message}`);
+                }
+            }
+        }
     }
 
     async hunt() {
