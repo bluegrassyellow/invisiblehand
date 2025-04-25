@@ -75,6 +75,10 @@ A Minecraft bot system that uses AI to create autonomous agents capable of gathe
 - `src/server.js`: WebSocket server for bot communication
 - `src/tools.py`: Utility functions and tools
 
+## Project Website
+
+Visit our [project website](https://ainivisiblehand.vercel.app) for more detailed documentation, live demonstrations, and additional resources.
+
 ## License
 
 See [LICENSE](LICENSE) file for details.
