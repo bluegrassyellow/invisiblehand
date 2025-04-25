@@ -77,7 +77,7 @@ A Minecraft bot system that uses AI to create autonomous agents capable of gathe
 
 ## Project Website
 
-Visit our [project website](https://ainivisiblehand.vercel.app) for more detailed documentation, live demonstrations, and additional resources.
+Visit our [project website](https://ainvisiblehand.com) for more detailed documentation, live demonstrations, and additional resources.
 
 ## License
 
